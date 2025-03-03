@@ -1,62 +1,104 @@
 import os
 import sys
-import glob
-import pandas as pd
+import csv
+import argparse
 import chardet
 
-def detect_encoding(file_path, num_bytes=1024):
-    """偵測檔案編碼，預設讀取前 1024 bytes"""
-    with open(file_path, 'rb') as f:
-        rawdata = f.read(num_bytes)
-    result = chardet.detect(rawdata)
-    return result['encoding']
+def merge_csv(input_dir, output_file, domain_col=4):
+    """
+    合併 input_dir 下所有 .csv, 以 UTF-8 (無 BOM) 寫出 output_file。
+    預設會以 domain_col 做網域去重：
+      - domain_col >= 0 表示要根據該欄位去重
+      - domain_col <  0 表示不做去重
 
-def merge_csv_files():
-    # 取得目前執行檔所在的資料夾（適用於打包成 exe 時）
-    cur_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-    input_folder = os.path.join(cur_dir, "all_csv")
-    output_folder = os.path.join(cur_dir, "csv_stuff")
+    :param input_dir:   要合併的 CSV 資料夾路徑
+    :param output_file: 合併後的檔案路徑 (UTF-8 無 BOM)
+    :param domain_col:  網域欄位的 0-based index，預設=4 (第 5 欄) 去重。若為 -1 則不去重。
+    """
 
-    # 若輸出資料夾不存在則建立
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-        print(f"建立資料夾: {output_folder}")
+    if not os.path.isdir(input_dir):
+        print(f"[警告] 找不到資料夾：{input_dir}")
+        return
 
-    # 搜尋所有 CSV 檔案
-    csv_files = glob.glob(os.path.join(input_folder, "*.csv"))
-    if not csv_files:
-        print("找不到任何 CSV 檔案！")
-        return None
+    all_files = [f for f in os.listdir(input_dir) if f.lower().endswith(".csv")]
+    if not all_files:
+        print(f"[警告] {input_dir} 中沒有任何 .csv 檔案，跳過合併。")
+        return
 
-    df_list = []
-    for file in csv_files:
-        encoding = detect_encoding(file)
-        print(f"{file} 偵測到編碼: {encoding}")
+    # 若需要去重，這裡存已出現的 domain
+    seen_domain = set() if domain_col >= 0 else None  
+
+    merged_data = []
+    header_saved = False
+
+    for file_name in all_files:
+        file_path = os.path.join(input_dir, file_name)
+
+        # 偵測原檔編碼
+        with open(file_path, "rb") as rb:
+            raw_data = rb.read(2048)
+        enc = chardet.detect(raw_data)["encoding"] or "utf-8"
+
         try:
-            df = pd.read_csv(file, encoding=encoding)
+            with open(file_path, "r", encoding=enc, errors="replace") as f:
+                reader = csv.reader(f)
+                file_header = next(reader, None)  # 讀第一行當作 header
+                if not file_header:
+                    continue
+
+                # 第一個檔案保留 header
+                if not header_saved:
+                    merged_data.append(file_header)
+                    header_saved = True
+
+                # 後續資料
+                for row in reader:
+                    if domain_col >= 0:
+                        # 若要去重 domain
+                        if len(row) <= domain_col:
+                            continue
+                        dom = row[domain_col].strip()
+                        if dom in seen_domain:
+                            continue
+                        else:
+                            seen_domain.add(dom)
+                    # 加入合併結果
+                    merged_data.append(row)
+
         except Exception as e:
-            print(f"讀取 {file} 時發生錯誤: {e}")
-            continue
-        df_list.append(df)
-        print(f"成功讀取: {file}")
+            print(f"[錯誤] 讀取 {file_name} 失敗：{e}")
 
-    if not df_list:
-        print("沒有成功讀取任何 CSV 檔案")
-        return None
+    if len(merged_data) < 2:
+        # 可能只有 header 或是空檔
+        print("[警告] 合併後沒有任何資料。")
+        return
 
-    # 合併所有 DataFrame
-    merged_df = pd.concat(df_list, ignore_index=True)
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    try:
+        with open(output_file, "w", encoding="utf-8", newline="") as out:
+            writer = csv.writer(out)
+            for row in merged_data:
+                writer.writerow(row)
+        print(f"[INFO] 合併完成：{output_file} (UTF-8, 無 BOM)")
+    except Exception as e:
+        print(f"[錯誤] 寫入合併結果失敗：{e}")
 
-    # 調整「編號」欄位，依序重新編號（若該欄存在）
-    if "編號" in merged_df.columns:
-        merged_df["編號"] = range(1, len(merged_df) + 1)
-        print("已重新調整「編號」欄位的序號。")
 
-    # 輸出結果到 CSV，用 utf-8-sig 以利 Excel 正確開啟中文
-    output_path = os.path.join(output_folder, "total.csv")
-    merged_df.to_csv(output_path, index=False, encoding="utf-8-sig")
-    print(f"CSV 合併完成，結果儲存於: {output_path}")
-    return output_path
+def main():
+    parser = argparse.ArgumentParser(
+        description="合併多個 CSV 檔，預設根據第5欄 (domain_col=4) 去重。"
+    )
+    parser.add_argument("--input-dir", required=True, help="要合併的 CSV 資料夾路徑")
+    parser.add_argument("--output-file", required=True, help="合併後輸出的檔案路徑")
+    parser.add_argument("--domain-col", type=int, default=4,
+                        help="網域欄位的 0-based index，預設=4 (第5欄) 進行去重；若指定 -1 則不去重")
+    args = parser.parse_args()
+
+    merge_csv(
+        input_dir=args.input_dir,
+        output_file=args.output_file,
+        domain_col=args.domain_col
+    )
 
 if __name__ == "__main__":
-    merge_csv_files()
+    main()
