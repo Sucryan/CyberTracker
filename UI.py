@@ -9,22 +9,29 @@ from tkinter import filedialog, messagebox
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 import time
-import winshell  # 需先 pip install winshell
+import winshell  # pip install winshell
 
-# 取得目前執行檔所在的資料夾
+# --------------------------
+# 全域路徑設定
+# --------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
-
-# 取得正確的桌面路徑 (例如 C:\Users\a0987\OneDrive\桌面)
-DESKTOP_DIR = winshell.desktop()
-
-# 定義輸出主資料夾，以及各子資料夾：HTML、PNG、XLSX（若有需要報告檔另存）
+DESKTOP_DIR = winshell.desktop()  # 例如 "C:\Users\YourName\OneDrive\桌面"
 OUTPUT_DIR = os.path.join(DESKTOP_DIR, "CyberTrackerOutput")
-HTML_DIR = os.path.join(OUTPUT_DIR, "html")
-PNG_DIR = os.path.join(OUTPUT_DIR, "png")
-XLSX_DIR = os.path.join(OUTPUT_DIR, "xlsx")  # 若需要 CSV→XLSX 轉檔
+# 分別存放桌面版與手機版輸出結果
+LAPTOP_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "laptop")
+MOBILE_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "mobile")
+# 桌面版中：分別存放 HTML 與 PNG
+LAP_HTML_DIR = os.path.join(LAPTOP_OUTPUT_DIR, "html")
+LAP_PNG_DIR = os.path.join(LAPTOP_OUTPUT_DIR, "png")
+# 手機版中：分別存放 HTML 與 PNG
+MOB_HTML_DIR = os.path.join(MOBILE_OUTPUT_DIR, "html")
+MOB_PNG_DIR = os.path.join(MOBILE_OUTPUT_DIR, "png")
+# 若有 XLSX 轉檔功能
+XLSX_DIR = os.path.join(OUTPUT_DIR, "xlsx")
 
-# -------------------------------------
-# 輔助函式：寫 log
+# --------------------------
+# 輔助函式
+# --------------------------
 def log(msg, text_widget):
     text_widget.insert(tk.END, msg + "\n")
     text_widget.see(tk.END)
@@ -32,106 +39,66 @@ def log(msg, text_widget):
 def thread_safe_log(msg, text_widget, root):
     root.after(0, lambda: log(msg, text_widget))
 
-# -------------------------------------
-# 輔助函式：從 CSV 第二行提取品牌名稱
-def extract_brand_from_row(row):
-    # 嘗試檢查 row 中每個欄位，找出包含「假冒」或「偽冒」的字串，取後面兩個字
-    for cell in row:
-        if "假冒" in cell:
-            pos = cell.find("假冒")
-            if len(cell) >= pos + 4:
-                return cell[pos+2:pos+4]
-        if "偽冒" in cell:
-            pos = cell.find("偽冒")
-            if len(cell) >= pos + 4:
-                return cell[pos+2:pos+4]
-    return "電商"  # 預設值
-
-# -------------------------------------
-# 複製 total.csv 並重新命名為 YYYYMMDD.申報.[品牌](N筆).csv
 def extract_brand_from_row(row):
     """
-    從第二行 (row) 的各欄位連接後的字串，判斷是否符合下列規則：
-      1) 若開頭是「疑似假冒」 → 取 text[4:6] 當品牌
-      2) 若開頭兩字是「偽冒」或「假冒」 → 取 text[2:4] 當品牌
-      3) 否則 → '電商'
+    從第二行的「網站」欄（假設為 row[1]）提取品牌：
+      1) 若內容以「疑似假冒」開頭，則取後面兩個字。
+      2) 若以「偽冒」或「假冒」開頭，則取後兩個字。
+      3) 否則回傳 "電商"
     """
-    text = ''.join(row).strip()  # 把該行所有欄位串起來做檢查
-
-    # 規則 1：若字串開頭是「疑似假冒」
+    # 假設「網站」資訊在 row[1]
+    if len(row) < 2:
+        return "電商"
+    text = row[1].strip()
     if text.startswith("疑似假冒"):
         if len(text) >= 6:
-            return text[4:6]  # 取疑似假冒後面兩字
+            return text[4:6]
         else:
             return "電商"
-
-    # 規則 2：若前兩字是「偽冒」或「假冒」
-    front2 = text[:2]
-    if front2 in ["偽冒", "假冒"]:
+    if text[:2] in ["偽冒", "假冒"]:
         if len(text) >= 4:
-            return text[2:4]  # 取後兩字
+            return text[2:4]
         else:
             return "電商"
-
-    # 都不符合則回傳「電商」
     return "電商"
-
 
 def copy_total_csv_report(total_csv_path, output_folder):
     """
-    讀取 total.csv，計算總筆數 (第一列為表頭，第二列起為資料)。
-    1) 從第二行 (第一筆資料) 解析品牌名稱。
-    2) 命名為 YYYYMMDD.申報.[品牌](N筆).csv
-    3) 以 UTF-8 寫出。
+    讀取 total.csv，計算總筆數 (第一列為表頭，從第二列起為資料)。
+    從第二行解析品牌（使用 extract_brand_from_row），
+    並命名為 YYYYMMDD.申報.[品牌](N筆).csv，以 UTF-8 輸出。
     """
     total_count = 0
-    brand = "電商"  # 預設
+    brand = "電商"
     second_row = None
-
     try:
         with open(total_csv_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader, None)  # 第一行為表頭
-
-            # 嘗試讀取第二行 (若有資料)
             try:
                 second_row = next(reader)
             except StopIteration:
                 second_row = None
-
-            # 計算總筆數：若 second_row 存在就先 +1
             if second_row:
                 total_count += 1
-
-            # 後續每列
             for row in reader:
                 if row and row[0].strip():
                     total_count += 1
-
     except Exception as e:
         raise Exception(f"讀取 total.csv 失敗：{e}")
-
-    # 解析品牌
     if second_row:
         brand = extract_brand_from_row(second_row)
-
-    # 產生檔名
     today_str = time.strftime("%Y%m%d", time.localtime())
     new_filename = f"{today_str}.申報.{brand}({total_count}筆).csv"
     new_file_path = os.path.join(output_folder, new_filename)
-
-    # 複製 total.csv → 產生最終報告檔 (UTF-8)
     try:
         with open(total_csv_path, "r", encoding="utf-8") as src, \
              open(new_file_path, "w", encoding="utf-8", newline="") as dst:
             shutil.copyfileobj(src, dst)
     except Exception as e:
         raise Exception(f"寫入報告檔失敗：{e}")
-
     return new_file_path
 
-# -------------------------------------
-# 清空 all_csv 資料夾
 def clear_all_csv(text_widget, root):
     target_dir = os.path.join(BASE_DIR, "all_csv")
     if os.path.exists(target_dir):
@@ -149,8 +116,6 @@ def clear_all_csv(text_widget, root):
         os.makedirs(target_dir, exist_ok=True)
         log("all_csv 資料夾不存在，已建立。", text_widget)
 
-# -------------------------------------
-# 匯入資料：將 CSV 複製到 all_csv 資料夾
 def import_data(text_widget, root):
     csv_file = filedialog.askopenfilename(
         title="請選擇 CSV 檔案",
@@ -166,8 +131,6 @@ def import_data(text_widget, root):
     except Exception as e:
         log(f"匯入失敗：{e}", text_widget)
 
-# -------------------------------------
-# CSV → XLSX 轉檔 (單獨使用)
 def convert_csv_button(text_widget, root):
     csv_file = filedialog.askopenfilename(
         title="請選擇要轉為 XLSX 的 CSV 檔案",
@@ -182,7 +145,6 @@ def convert_csv_button(text_widget, root):
     if not os.path.exists(csv_to_xlsx_exe):
         messagebox.showerror("錯誤", "找不到 csv_to_xlsx.exe 執行檔！")
         return
-
     def run_conversion():
         try:
             thread_safe_log(
@@ -196,8 +158,6 @@ def convert_csv_button(text_widget, root):
     t = threading.Thread(target=run_conversion)
     t.start()
 
-# -------------------------------------
-# 產生通報 (TXT 報告)
 def generate_domain_report_txt(csv_file, output_txt):
     domains = set()
     try:
@@ -234,54 +194,24 @@ def generate_report(text_widget, root):
     result = generate_domain_report_txt(merged_csv, output_txt)
     log(result, text_widget)
 
-# -------------------------------------
-# 嵌入圖片至 HTML：
-# 處理 HTML 資料夾 (HTML_DIR) 中的 HTML 檔，
-# 從 PNG 資料夾 (PNG_DIR) 中找到對應圖片檔後複製到 HTML_DIR，
-# 並在 HTML 檔中插入 <img src="[圖片檔名]"> 標籤
-def embed_image_in_html(html_folder, png_folder, root, text_widget):
-    try:
-        html_files = [f for f in os.listdir(html_folder) if f.lower().endswith(".html")]
-        if not html_files:
-            thread_safe_log("找不到 HTML 檔案以嵌入圖片。", text_widget, root)
-            return
+# --------------------------
+# 移除 embed_image_in_html 功能（不再執行）
+# --------------------------
+# （原本的圖片嵌入功能已刪除）
 
-        for html_file in html_files:
-            base = os.path.splitext(html_file)[0]
-            png_file = base + ".png"
-            png_src = os.path.join(png_folder, png_file)
-            if os.path.exists(png_src):
-                png_dest = os.path.join(html_folder, png_file)
-                shutil.copy2(png_src, png_dest)
-                html_path = os.path.join(html_folder, html_file)
-                with open(html_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                img_tag = f'\n<img src="{png_file}" alt="Screenshot">\n'
-                insert_pos = content.lower().rfind("</body>")
-                if insert_pos == -1:
-                    new_content = content + img_tag
-                else:
-                    new_content = content[:insert_pos] + img_tag + content[insert_pos:]
-                with open(html_path, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                thread_safe_log(f"在 {html_file} 中嵌入圖片 {png_file}", text_widget, root)
-            else:
-                thread_safe_log(f"找不到對應於 {html_file} 的 PNG 檔案。", text_widget, root)
-    except Exception as e:
-        thread_safe_log(f"嵌入圖片到 HTML 時發生錯誤：{e}", text_widget, root)
-
-# -------------------------------------
-# 一鍵完成流程：
-# 1. 執行 merge_csv.exe 產生 total.csv (在 BASE_DIR\csv_stuff)
-# 2. 呼叫 web_capture.exe 分別輸出：
-#    - 截圖 (.png) 至 PNG_DIR
-#    - HTML (.html) 至 HTML_DIR
-# 3. 生成報告 TXT (通報檔)，並複製 total.csv 重新命名為 YYYYMMDD.申報.[品牌](N筆).csv
+# --------------------------
+# 一鍵完成流程，使用 multi-threading 執行 web_capture 任務
+# 同時生成桌面版與手機版輸出
+# --------------------------
 def run_long_task(text_widget, root, progressbar):
+    # 建立必要資料夾
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    os.makedirs(HTML_DIR, exist_ok=True)
-    os.makedirs(PNG_DIR, exist_ok=True)
-    # 確保 csv_stuff 資料夾存在
+    os.makedirs(LAPTOP_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(MOBILE_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(LAP_HTML_DIR, exist_ok=True)
+    os.makedirs(LAP_PNG_DIR, exist_ok=True)
+    os.makedirs(MOB_HTML_DIR, exist_ok=True)
+    os.makedirs(MOB_PNG_DIR, exist_ok=True)
     csv_stuff_dir = os.path.join(BASE_DIR, "csv_stuff")
     os.makedirs(csv_stuff_dir, exist_ok=True)
 
@@ -293,7 +223,6 @@ def run_long_task(text_widget, root, progressbar):
         root.after(0, progressbar.stop)
         return
 
-    # 呼叫 merge_csv.exe 時傳入參數
     input_dir = os.path.join(BASE_DIR, "all_csv")
     output_csv = os.path.join(csv_stuff_dir, "total.csv")
     thread_safe_log("開始執行 merge_csv...", text_widget, root)
@@ -320,35 +249,61 @@ def run_long_task(text_widget, root, progressbar):
         root.after(0, progressbar.stop)
         return
 
-    # 呼叫 web_capture.exe 輸出截圖至 PNG_DIR
-    thread_safe_log("啟動 web_capture [screenshot] 模式...", text_widget, root)
-    proc_screenshot = subprocess.Popen([
-        web_capture_exe, 
-        "screenshot", 
-        "--csv", output_csv,
-        "--output", PNG_DIR
-    ])
-    # 呼叫 web_capture.exe 輸出 HTML 至 HTML_DIR
-    thread_safe_log("啟動 web_capture [html] 模式...", text_widget, root)
-    proc_html = subprocess.Popen([
-        web_capture_exe, 
-        "html", 
-        "--csv", output_csv,
-        "--output", HTML_DIR
-    ])
-    proc_screenshot.wait()
-    proc_html.wait()
-    thread_safe_log("web_capture 截圖/HTML 已完成。", text_widget, root)
+    # 定義執行 subprocess 命令的函式
+    def run_capture(cmd, task_name):
+        try:
+            subprocess.run(cmd, check=True)
+            thread_safe_log(f"{task_name} 完成。", text_widget, root)
+        except Exception as e:
+            thread_safe_log(f"{task_name} 執行失敗：{e}", text_widget, root)
 
-    # 嵌入圖片：將 PNG 從 PNG_DIR 複製到 HTML_DIR，並在 HTML 檔中插入 <img> 標籤
-    # embed_image_in_html(HTML_DIR, PNG_DIR, root, text_widget)
+    # 設定桌面版 (laptop) 指令 (不帶 --mobile)
+    lap_screenshot_cmd = [
+        web_capture_exe,
+        "screenshot",
+        "--csv", output_csv,
+        "--output", LAP_PNG_DIR
+    ]
+    lap_html_cmd = [
+        web_capture_exe,
+        "html",
+        "--csv", output_csv,
+        "--output", LAP_HTML_DIR
+    ]
+    # 設定手機版 (mobile) 指令 (帶 --mobile)
+    mob_screenshot_cmd = [
+        web_capture_exe,
+        "screenshot",
+        "--csv", output_csv,
+        "--output", MOB_PNG_DIR,
+        "--mobile"
+    ]
+    mob_html_cmd = [
+        web_capture_exe,
+        "html",
+        "--csv", output_csv,
+        "--output", MOB_HTML_DIR,
+        "--mobile"
+    ]
+
+    threads = []
+    for cmd, task in [(lap_screenshot_cmd, "桌面截圖"),
+                      (lap_html_cmd, "桌面 HTML"),
+                      (mob_screenshot_cmd, "手機截圖"),
+                      (mob_html_cmd, "手機 HTML")]:
+        t = threading.Thread(target=run_capture, args=(cmd, task))
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
+    thread_safe_log("web_capture 所有任務已完成。", text_widget, root)
 
     # 生成報告 TXT
     total_count = 0
     try:
         with open(output_csv, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            header = next(reader, None)
+            next(reader, None)
             for row in reader:
                 if row and row[0].strip():
                     total_count += 1
@@ -381,9 +336,6 @@ def one_click_complete(text_widget, root, progressbar):
     t = threading.Thread(target=run_long_task, args=(text_widget, root, progressbar))
     t.start()
 
-# -------------------------------------
-# 建立美化後的 UI (駭客風：炭黑 + 駭客螢光綠)
-# -------------------------------------
 def main_ui():
     root = tk.Tk()
     root.title("CyberTracker Control Panel")
