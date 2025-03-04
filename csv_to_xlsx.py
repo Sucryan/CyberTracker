@@ -1,95 +1,151 @@
 import sys
 import csv
 import openpyxl
-from openpyxl.styles import numbers
 import datetime
 
-# 根據實際 CSV 值的格式，寫對應的 strptime 格式字串
-# 假設「詐騙網站接獲日期」原本 CSV 內容是 "2023-03-01 12:34:56"
-# 假設「停止解析日期」原本 CSV 內容是 "20230302"
-# 如果你的原 CSV 有其他格式，請自行修改。
-DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"  # ex: 2023-03-01 12:34:56
-DATE_FORMAT = "%Y%m%d"                # ex: 20230302
+def parse_datetime_isoformat(date_str):
+    """
+    嘗試解析日期/時間字串，支援含 'T' 的 ISO 格式。
+    例如：2023-06-29T12:34:56 或 2025-02-15T02:42:55.637
+    若尾端有 'Z' 則先去除，再用 fromisoformat。
+    傳回 datetime.datetime 物件；若解析失敗傳回 None。
+    """
+    date_str = date_str.strip()
+    if date_str.endswith("Z"):
+        date_str = date_str[:-1]
+    try:
+        return datetime.datetime.fromisoformat(date_str)
+    except ValueError:
+        return None
+
+def parse_date_yyyy_mm_dd(date_str):
+    """
+    嘗試解析 'YYYY-MM-DD' 格式 (不含時間)，
+    傳回 datetime.date 物件；若失敗傳回 None。
+    """
+    date_str = date_str.strip()
+    try:
+        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        return dt.date()
+    except ValueError:
+        return None
+
+def parse_any_date(date_str):
+    """
+    通用的解析函式，如果同時可能出現
+    2025-02-15T02:42:55 或 2025-02-21 (不含 'T')
+    就可用此函式先嘗試解析成 datetime，否則再解析成 date。
+    """
+    if not date_str.strip():
+        return None
+    dt = parse_datetime_isoformat(date_str)
+    if dt:
+        return dt
+    d = parse_date_yyyy_mm_dd(date_str)
+    if d:
+        return d
+    return None
 
 def convert_csv_to_xlsx(input_csv, output_xlsx):
     """
-    將 CSV 轉為 XLSX，並針對
-      1) 「詐騙網站接獲日期」 → yyyy-mm-ddTHH:mm:ss
-      2) 「停止解析日期」     → yyyymmdd
-    做特定格式設定
+    針對 CSV 三個欄位，做指定的格式：
+      1. 詐騙網站創建日期 → yyyy-mm-ddThh:mm:ss (以 datetime 存)
+      2. 接獲通報日期、停止解析日期 → yyyymmdd (以 date 存)
+    其餘欄位保持文字。
     """
-    # 讀取 CSV 到記憶體
-    with open(input_csv, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-    if not rows:
-        print("[警告] CSV 為空，無法轉檔。")
-        return
-
-    # 建立 Workbook 與 Worksheet
     wb = openpyxl.Workbook()
     ws = wb.active
 
-    # 將資料寫入 Worksheet
-    for row_data in rows:
-        ws.append(row_data)
+    # 讀取 CSV 所有行
+    with open(input_csv, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
 
-    # 偵測 header
+    if not rows:
+        print("[WARNING] CSV 為空")
+        return
+
+    # 先寫表頭
     header = rows[0]
-    # 找出「詐騙網站接獲日期」「停止解析日期」欄位的索引 (0-based)
-    idx_received = None
-    idx_stopped = None
-    try:
-        idx_received = header.index("詐騙網站接獲日期")
-    except ValueError:
-        pass
-    try:
-        idx_stopped = header.index("停止解析日期")
-    except ValueError:
-        pass
+    ws.append(header)
 
-    # 從第 2 列開始處理（第 1 列是表頭）
-    for r in range(2, ws.max_row + 1):
-        # 如果有「詐騙網站接獲日期」欄位
-        if idx_received is not None:
-            cell_received = ws.cell(row=r, column=idx_received + 1)  # openpyxl 是 1-based
-            val = cell_received.value
-            # 嘗試轉成 datetime
-            if val:
-                try:
-                    dt = datetime.datetime.strptime(val, DATETIME_FORMAT)
-                    cell_received.value = dt
-                    # 設定儲存格格式 → yyyy-mm-ddTHH:mm:ss
-                    # 其中 "T" 必須要用跳脫或雙引號，Excel 才能顯示
-                    # 可嘗試 "yyyy-mm-dd\\THH:mm:ss" 讓 T 顯示為文字
-                    cell_received.number_format = r'yyyy-mm-dd"T"HH:mm:ss'
-                except ValueError:
-                    pass  # 解析失敗就保持原文字
+    # 尋找三個目標欄位的索引
+    col_index_creation = None  # "詐騙網站創建日期"
+    col_index_report   = None  # "接獲通報日期"
+    col_index_stop     = None  # "停止解析日期"
 
-        # 如果有「停止解析日期」欄位
-        if idx_stopped is not None:
-            cell_stopped = ws.cell(row=r, column=idx_stopped + 1)
-            val = cell_stopped.value
-            if val:
-                try:
-                    dt2 = datetime.datetime.strptime(val, DATE_FORMAT)
-                    # 只存日期
-                    cell_stopped.value = dt2.date()
-                    # 設定格式為 yyyymmdd
-                    cell_stopped.number_format = "yyyymmdd"
-                except ValueError:
-                    pass
+    for i, col_name in enumerate(header):
+        if col_name.strip() == "詐騙網站創建日期":
+            col_index_creation = i
+        elif col_name.strip() == "接獲通報日期":
+            col_index_report = i
+        elif col_name.strip() == "停止解析日期":
+            col_index_stop = i
+
+    # 寫入資料，並針對三個欄位做相應解析
+    for row in rows[1:]:
+        new_row = row.copy()
+        # 1) 詐騙網站創建日期 → 解析成 datetime，格式 yyyy-mm-ddThh:mm:ss
+        if col_index_creation is not None and len(row) > col_index_creation:
+            dt = parse_datetime_isoformat(row[col_index_creation])
+            if dt:
+                new_row[col_index_creation] = dt  # datetime 物件
+
+        # 2) 接獲通報日期、3) 停止解析日期 → 解析成 date，格式 yyyymmdd
+        #   但有可能是 'YYYY-MM-DD' 或 'YYYY-MM-DDTHH:mm:ss'
+        if col_index_report is not None and len(row) > col_index_report:
+            dd = parse_any_date(row[col_index_report])
+            if dd:
+                # 若 parse_any_date 傳回 datetime，就取其 date()
+                if isinstance(dd, datetime.datetime):
+                    new_row[col_index_report] = dd.date()
+                else:
+                    new_row[col_index_report] = dd
+
+        if col_index_stop is not None and len(row) > col_index_stop:
+            dd = parse_any_date(row[col_index_stop])
+            if dd:
+                if isinstance(dd, datetime.datetime):
+                    new_row[col_index_stop] = dd.date()
+                else:
+                    new_row[col_index_stop] = dd
+
+        ws.append(new_row)
+
+    # 寫好資料後，設定 number_format
+    #   - 詐騙網站創建日期 => yyyy-mm-ddThh:mm:ss
+    #   - 接獲通報日期、停止解析日期 => yyyymmdd
+    max_row = ws.max_row
+
+    def set_col_format(col_idx, row_start, date_format):
+        """把 worksheet 的第 col_idx+1 欄 (1-based) 從 row_start 到 max_row 設為 date_format"""
+        if col_idx is None:
+            return
+        for r in range(row_start, max_row + 1):
+            cell = ws.cell(row=r, column=col_idx + 1)
+            val = cell.value
+            if isinstance(val, (datetime.datetime, datetime.date)):
+                cell.number_format = date_format
+
+    # 1) 創建日期 => "yyyy-mm-ddThh:mm:ss"
+    set_col_format(col_index_creation, 2, 'yyyy-mm-dd"T"hh:mm:ss')
+
+    # 2) 接獲通報日期 => "yyyymmdd"
+    set_col_format(col_index_report, 2, 'yyyymmdd')
+
+    # 3) 停止解析日期 => "yyyymmdd"
+    set_col_format(col_index_stop, 2, 'yyyymmdd')
 
     wb.save(output_xlsx)
     print(f"[INFO] 已輸出 XLSX：{output_xlsx}")
 
-def main():
+# ================
+# 主程式
+# ================
+if __name__=="__main__":
     if len(sys.argv) < 3:
         print("用法：python csv_to_xlsx.py <input.csv> <output.xlsx>")
         sys.exit(1)
     input_csv = sys.argv[1]
     output_xlsx = sys.argv[2]
     convert_csv_to_xlsx(input_csv, output_xlsx)
-
-if __name__ == "__main__":
-    main()
