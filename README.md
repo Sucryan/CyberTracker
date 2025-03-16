@@ -30,7 +30,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     A((CyberTrackerOutput))
-    A --> B["ex. 20250317.申報.樂信+蝦皮(2筆).csv<br> 彙整檔案 (UTF-8 CSV)"]
+    A --> B["20250317.申報.樂信+蝦皮(2筆).csv<br> 彙整檔案 (UTF-8 CSV)"]
     A --> C["LineReport.txt<br> 用於 Line 通報"]
     A --> D((laptop))
     A --> E((mobile))
@@ -43,7 +43,7 @@ flowchart TB
     D1 --> D1c["error_log.txt<br> 紀錄錯誤原因及 URL"]
     D2 --> D2a["03170245_ovuts.top_Google.png"]
     D2 --> D2b["03170245_xinb.fokd.store_Yahoo奇摩.png"]
-    D2 --> D2c["error_log.txt<br> 同上"]
+    D2 --> D2c["error_log.txt"]
 
     E --> E1((html))
     E --> E2((png))
