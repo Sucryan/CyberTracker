@@ -9,17 +9,16 @@
 ```mermaid
 flowchart TB
     A((CyberTracker))
-    A --> B["csv_to_xlsx.exe<br> 執行通報彙整檔轉換的程式"]
-    A --> C["CyberTracker.exe<br> UI 程式"]
-    A --> D["merge_csv.exe<br> 將 all_csv 的檔案合併成 csv_stuff/total.csv"]
-    A --> E["web_capture.exe<br> 執行網頁截圖與原始檔下載"]
+    A --> B["csv_to_xlsx.exe<br> (執行通報彙整檔轉換的程式)"]
+    A --> C["CyberTracker.exe<br> (UI 程式)"]
+    A --> D["merge_csv.exe<br> (將 all_csv 的檔案合併成 csv_stuff/total.csv)"]
+    A --> E["web_capture.exe<br> (執行網頁截圖與原始檔下載)"]
     A --> F((all_csv))
     A --> G((csv_stuff))
 
-    F --> F1["2025-02-08.申報.樂信創意 (1).csv"]
-    F --> F2["2025-02-08.申報.樂信創意 (2).csv"]
-    F --> F3["2025-02-08.申報.樂信創意 (3).csv"]
-    F --> F4["2025-02-08.申報.蝦皮.csv"]
+    F --> F1["網頁匯出1.csv"]
+    F --> F2["網頁匯出2.csv"]
+    F --> F3["網頁匯出3.csv"]
 
     G --> G1["total.csv<br> (將上述檔案合併)"]
 ```
@@ -31,7 +30,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     A((CyberTrackerOutput))
-    A --> B["20250317.申報.樂信+蝦皮(2筆).csv<br> 彙整檔案 (UTF-8 CSV)"]
+    A --> B["ex. 20250317.申報.樂信+蝦皮(2筆).csv<br> 彙整檔案 (UTF-8 CSV)"]
     A --> C["LineReport.txt<br> 用於 Line 通報"]
     A --> D((laptop))
     A --> E((mobile))
