@@ -6,7 +6,7 @@
 
 這裡展示的是 CyberTracker 程式的主要目錄結構，包含主要執行檔與相關資料夾。
 
-```mermaid
+```mermaid=
 flowchart TB
     A((CyberTracker))
     A --> B[csv_to_xlsx.exe <br/># 執行通報彙整檔轉換的程式]
@@ -30,7 +30,7 @@ flowchart TB
 
 以下流程圖描述 CyberTracker 執行後輸出的目錄結構，包含 CSV、Line 報告以及不同平台（laptop 與 mobile）下的 HTML 與 PNG 資料夾：
 
-```mermaid
+```mermaid=
 flowchart TB
     A((CyberTrackerOutput))
     A --> B[20250317.申報.樂信+蝦皮(2筆).csv <br/># 彙整檔案 (UTF-8 CSV)]
