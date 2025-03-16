@@ -21,31 +21,6 @@ CyberTracker
 ### CyberTrackerOutput
 ```bash=
 CyberTrackerOutput
-|   20250317.申報.蝦皮+電商(2筆).csv    # 彙整檔案(轉換成UTF=8的csv檔)
-|   LineReport.txt                   # 可以拿來傳送給蘇昱辰的line通報檔
-+---laptop # 儲存電腦版內容
-|   +---html
-|   |       03170210_ovuts.top_Google.html 
-|   |       03170210_xinb.fokd.store_Yahoo奇摩.html
-|   |       error_log.txt            # 會儲存error的原因及其url，方便審查員進行手動處理。
-|   |
-|   \---png
-|           03170210_ovuts.top_Google.png
-|           03170210_xinb.fokd.store_Yahoo奇摩.png
-|           error_log.txt
-|
-\---mobile # 儲存手機版內容
-    +---html
-    |       03170210_ovuts.top_Google.html
-    |       03170210_xinb.fokd.store_Yahoo奇摩.html
-    |       error_log.txt
-    |
-    \---png
-            03170210_ovuts.top_Google.png
-            03170210_xinb.fokd.store_Yahoo奇摩.png
-            error_log.txt
-
-CyberTrackerOutput
 |   20250317.申報.樂信+蝦皮(2筆).csv  # 彙整檔案(轉換成UTF=8的csv檔)
 |   LineReport.txt                 # 可以拿來傳送給蘇昱辰的line通報檔
 |
