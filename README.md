@@ -1,10 +1,6 @@
-
-```markdown
 # CyberTracker 專案說明
 
 這份 README 提供了 CyberTracker 程式的架構與執行路徑說明，並以 Mermaid 流程圖呈現檔案結構。
-
----
 
 ## 1. CyberTracker 程式本身
 
@@ -29,8 +25,6 @@ flowchart TB
     %% csv_stuff 裡面的檔案
     G --> G1[total.csv <br/># (合併結果)]
 ```
-
----
 
 ## 2. CyberTrackerOutput 結構
 
@@ -82,17 +76,3 @@ flowchart TB
 ![CyberTracker執行路徑.drawio](https://hackmd.io/_uploads/SylPfscE3Jx.png)
 
 ---
-
-## 使用說明
-
-- 將這份 README.md 貼到你的專案中，並確認你使用的環境（例如 GitHub、GitLab 或 HackMD）支援 Mermaid 語法，即可直接預覽流程圖。
-- 若你只想呈現 cmd 的 `tree` 結果，建議直接使用程式碼區塊，不會有高亮效果，但可以保留原始格式。
-
----
-
-希望這份 README 能幫助你更清楚地展示專案結構與執行路徑！
-```
-
----
-
-將上述內容複製到你的 README.md 中，保存後在支援 Mermaid 的平台上就能看到完整的樹狀圖與流程圖。
