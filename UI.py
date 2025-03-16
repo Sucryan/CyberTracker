@@ -46,58 +46,54 @@ def extract_brand_from_row(row):
       2) 若以「偽冒」或「假冒」開頭，則取後兩個字。
       3) 否則回傳 "電商"
     """
-    # 假設「網站」資訊在 row[1]
     if len(row) < 2:
         return "電商"
     text = row[1].strip()
     if text.startswith("疑似假冒"):
-        if len(text) >= 6:
-            return text[4:6]
-        else:
-            return "電商"
+        return text[4:6] if len(text) >= 6 else "電商"
     if text[:2] in ["偽冒", "假冒"]:
-        if len(text) >= 4:
-            return text[2:4]
-        else:
-            return "電商"
+        return text[2:4] if len(text) >= 4 else "電商"
     return "電商"
 
 def copy_total_csv_report(total_csv_path, output_folder):
     """
     讀取 total.csv，計算總筆數 (第一列為表頭，從第二列起為資料)。
-    從第二行解析品牌（使用 extract_brand_from_row），
-    並命名為 YYYYMMDD.申報.[品牌](N筆).csv，以 UTF-8 輸出。
+    從 total.csv 中解析每一筆資料的品牌（呼叫 extract_brand_from_row），
+    並命名為 YYYYMMDD.申報.(廠商1+廠商2+...)(N筆).csv，以 UTF-8 輸出。
     """
     total_count = 0
-    brand = "電商"
-    second_row = None
+    vendor_set = set()
+
     try:
         with open(total_csv_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            header = next(reader, None)  # 第一行為表頭
-            try:
-                second_row = next(reader)
-            except StopIteration:
-                second_row = None
-            if second_row:
-                total_count += 1
+            header = next(reader, None)  # 略過表頭
             for row in reader:
+                # 如果該列有資料 (row[0] 不是空的)，就計數並提取品牌
                 if row and row[0].strip():
                     total_count += 1
+                    brand = extract_brand_from_row(row)  # 使用先前定義好的函式
+                    vendor_set.add(brand)
     except Exception as e:
         raise Exception(f"讀取 total.csv 失敗：{e}")
-    if second_row:
-        brand = extract_brand_from_row(second_row)
+
+    # 如果有收集到品牌，則以 "+" 連接，否則預設為 "電商"
+    vendor_str = "+".join(sorted(vendor_set)) if vendor_set else "電商"
+
     today_str = time.strftime("%Y%m%d", time.localtime())
-    new_filename = f"{today_str}.申報.{brand}({total_count}筆).csv"
+    new_filename = f"{today_str}.申報.{vendor_str}({total_count}筆).csv"
     new_file_path = os.path.join(output_folder, new_filename)
+
+    # 將 total.csv 原始內容直接複製到新檔名中
     try:
         with open(total_csv_path, "r", encoding="utf-8") as src, \
              open(new_file_path, "w", encoding="utf-8", newline="") as dst:
             shutil.copyfileobj(src, dst)
     except Exception as e:
         raise Exception(f"寫入報告檔失敗：{e}")
+
     return new_file_path
+
 
 def clear_all_csv(text_widget, root):
     target_dir = os.path.join(BASE_DIR, "all_csv")
@@ -197,14 +193,8 @@ def generate_report(text_widget, root):
 # --------------------------
 # 移除 embed_image_in_html 功能（不再執行）
 # --------------------------
-# （原本的圖片嵌入功能已刪除）
 
-# --------------------------
-# 一鍵完成流程，使用 multi-threading 執行 web_capture 任務
-# 同時生成桌面版與手機版輸出
-# --------------------------
 def run_long_task(text_widget, root, progressbar):
-    # 建立必要資料夾
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(LAPTOP_OUTPUT_DIR, exist_ok=True)
     os.makedirs(MOBILE_OUTPUT_DIR, exist_ok=True)
@@ -249,7 +239,6 @@ def run_long_task(text_widget, root, progressbar):
         root.after(0, progressbar.stop)
         return
 
-    # 定義執行 subprocess 命令的函式
     def run_capture(cmd, task_name):
         try:
             subprocess.run(cmd, check=True)
@@ -257,7 +246,6 @@ def run_long_task(text_widget, root, progressbar):
         except Exception as e:
             thread_safe_log(f"{task_name} 執行失敗：{e}", text_widget, root)
 
-    # 設定桌面版 (laptop) 指令 (不帶 --mobile)
     lap_screenshot_cmd = [
         web_capture_exe,
         "screenshot",
@@ -270,7 +258,6 @@ def run_long_task(text_widget, root, progressbar):
         "--csv", output_csv,
         "--output", LAP_HTML_DIR
     ]
-    # 設定手機版 (mobile) 指令 (帶 --mobile)
     mob_screenshot_cmd = [
         web_capture_exe,
         "screenshot",
@@ -298,7 +285,6 @@ def run_long_task(text_widget, root, progressbar):
         t.join()
     thread_safe_log("web_capture 所有任務已完成。", text_widget, root)
 
-    # 生成報告 TXT
     total_count = 0
     try:
         with open(output_csv, "r", encoding="utf-8") as f:
@@ -319,7 +305,6 @@ def run_long_task(text_widget, root, progressbar):
     result = generate_domain_report_txt(output_csv, report_txt_path)
     thread_safe_log(result, text_widget, root)
 
-    # 複製 total.csv 並重新命名為 YYYYMMDD.申報.[品牌](N筆).csv
     try:
         report_csv_path = copy_total_csv_report(output_csv, OUTPUT_DIR)
         thread_safe_log(f"已複製 total.csv 並生成報告 CSV：{os.path.basename(report_csv_path)}", text_widget, root)
@@ -336,6 +321,9 @@ def one_click_complete(text_widget, root, progressbar):
     t = threading.Thread(target=run_long_task, args=(text_widget, root, progressbar))
     t.start()
 
+# --------------------------
+# 主 UI 程式
+# --------------------------
 def main_ui():
     root = tk.Tk()
     root.title("CyberTracker Control Panel")
@@ -392,6 +380,13 @@ def main_ui():
                                   orient=tk.HORIZONTAL, mode="indeterminate", length=520)
     progressbar.pack(pady=5)
 
+    # 當使用者按下視窗右上角 X 時，直接終止整個程式
+    def on_closing():
+        if messagebox.askokcancel("離開", "確定要退出程式嗎？"):
+            # 終止所有背景工作與子程序，直接退出
+            os._exit(0)
+
+    root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
 
 if __name__ == "__main__":
