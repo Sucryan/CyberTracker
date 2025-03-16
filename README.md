@@ -9,10 +9,10 @@
 ```mermaid
 flowchart TB
     A((CyberTracker))
-    A --> B["csv_to_xlsx.exe\n 執行通報彙整檔轉換的程式"]
-    A --> C["CyberTracker.exe\n UI 程式"]
-    A --> D["merge_csv.exe\n 將 all_csv 的檔案合併成 csv_stuff/total.csv"]
-    A --> E["web_capture.exe\n 執行網頁截圖與原始檔下載"]
+    A --> B["csv_to_xlsx.exe<br> 執行通報彙整檔轉換的程式"]
+    A --> C["CyberTracker.exe<br> UI 程式"]
+    A --> D["merge_csv.exe<br> 將 all_csv 的檔案合併成 csv_stuff/total.csv"]
+    A --> E["web_capture.exe<br> 執行網頁截圖與原始檔下載"]
     A --> F((all_csv))
     A --> G((csv_stuff))
 
@@ -21,7 +21,7 @@ flowchart TB
     F --> F3["2025-02-08.申報.樂信創意 (3).csv"]
     F --> F4["2025-02-08.申報.蝦皮.csv"]
 
-    G --> G1["total.csv\n (將上述檔案合併)"]
+    G --> G1["total.csv<br> (將上述檔案合併)"]
 ```
 
 ## 2. CyberTrackerOutput 結構
@@ -31,8 +31,8 @@ flowchart TB
 ```mermaid
 flowchart TB
     A((CyberTrackerOutput))
-    A --> B["20250317.申報.樂信+蝦皮(2筆).csv\n 彙整檔案 (UTF-8 CSV)"]
-    A --> C["LineReport.txt\n 用於 Line 通報"]
+    A --> B["20250317.申報.樂信+蝦皮(2筆).csv<br> 彙整檔案 (UTF-8 CSV)"]
+    A --> C["LineReport.txt<br> 用於 Line 通報"]
     A --> D((laptop))
     A --> E((mobile))
     A --> F((xlsx))
@@ -41,10 +41,10 @@ flowchart TB
     D --> D2((png))
     D1 --> D1a["03170245_ovuts.top_Google.html"]
     D1 --> D1b["03170245_xinb.fokd.store_Yahoo奇摩.html"]
-    D1 --> D1c["error_log.txt\n 紀錄錯誤原因及 URL"]
+    D1 --> D1c["error_log.txt<br> 紀錄錯誤原因及 URL"]
     D2 --> D2a["03170245_ovuts.top_Google.png"]
     D2 --> D2b["03170245_xinb.fokd.store_Yahoo奇摩.png"]
-    D2 --> D2c["error_log.txt\n 同上"]
+    D2 --> D2c["error_log.txt<br> 同上"]
 
     E --> E1((html))
     E --> E2((png))
