@@ -25,7 +25,9 @@ flowchart TB
 
 ## 2. CyberTrackerOutput 結構
 
-以下流程圖描述 CyberTracker 執行後輸出的目錄結構，其中內容為範例輸出(意思是指底下的例如03170245_xinb.fokd.store_Yahoo奇摩，是一個範例而非固定輸出此檔案名稱，格式要求及其他詳細內容另有相關說明與對照)，包含 CSV、Line 報告以及不同平台（laptop 與 mobile）下的 HTML 與 PNG 資料夾：
+以下流程圖描述 CyberTracker 執行後輸出的目錄結構，其中內容為範例輸出
+(意思是指底下的例如03170245_xinb.fokd.store_Yahoo奇摩，是一個範例而非固定輸出此檔案名稱，格式要求及其他詳細內容另有相關說明與對照)，
+包含 CSV、Line 報告以及不同平台（laptop 與 mobile）下的 HTML 與 PNG 資料夾：
 
 ```mermaid
 flowchart TB
