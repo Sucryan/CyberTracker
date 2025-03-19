@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 import csv
@@ -11,12 +12,67 @@ from tkinter.scrolledtext import ScrolledText
 import time
 import winshell  # pip install winshell
 
+import traceback
+import re
+
+today_str = datetime.datetime.now().strftime("%Y%m%d")
+now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+def on_closing():
+    if messagebox.askokcancel("離開", "確定要退出程式嗎？"):
+        # 設置中止旗標，告知所有 thread 停止工作
+        global stop_all_threads
+        stop_all_threads = True
+        # 可以等待各 thread 收工或直接強制退出
+        os._exit(0)
+
+# --------------------------
+# 全域handler設定
+# --------------------------
+
+# 假設 BASE_DIR 為你程式所在的資料夾
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def global_exception_handler(exctype, value, tb):
+    # 建立 error log 資料夾
+    error_log_folder = os.path.join(BASE_DIR, "error log")
+    os.makedirs(error_log_folder, exist_ok=True)
+    
+    # 定義詳細錯誤與摘要檔案路徑
+    detailed_log_file = os.path.join(error_log_folder, "detailed_error.log")
+    summary_log_file = os.path.join(error_log_folder, "error_summary.txt")
+    
+    # 將完整 traceback 寫入 detailed_error.log
+    with open(detailed_log_file, "w", encoding="utf-8") as f:
+        traceback.print_exception(exctype, value, tb, file=f)
+    
+    # 產生錯誤摘要：從 traceback 中找出所有網址
+    error_trace = "".join(traceback.format_exception(exctype, value, tb))
+    # 使用正規表示式找出 http:// 或 https:// 開頭的網址
+    url_pattern = r'(https?://[^\s]+)'
+    urls = re.findall(url_pattern, error_trace)
+    
+    with open(summary_log_file, "w", encoding="utf-8") as f:
+        if urls:
+            for url in urls:
+                f.write(url + "\n")
+        else:
+            f.write("未找到錯誤中的網址。請參考 detailed_error.log 獲得完整資訊。\n")
+    
+    # 顯示簡單提示給使用者
+    print("發生錯誤，詳細資訊請參閱 error log 資料夾。")
+
+# 設定全域例外處理器
+sys.excepthook = global_exception_handler
+
+
+
 # --------------------------
 # 全域路徑設定
 # --------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
 DESKTOP_DIR = winshell.desktop()  # 例如 "C:\Users\YourName\OneDrive\桌面"
-OUTPUT_DIR = os.path.join(DESKTOP_DIR, "CyberTrackerOutput")
+OUTPUT_DIR = os.path.join(DESKTOP_DIR, f"CyberTrackerOutput_{now_str}")
 # 分別存放桌面版與手機版輸出結果
 LAPTOP_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "laptop")
 MOBILE_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "mobile")
@@ -136,7 +192,7 @@ def convert_csv_button(text_widget, root):
         return
     base_name = os.path.splitext(os.path.basename(csv_file))[0]
     os.makedirs(XLSX_DIR, exist_ok=True)
-    output_xlsx = os.path.join(XLSX_DIR, base_name + ".xlsx")
+    output_xlsx = os.path.join(XLSX_DIR, f"通報TWNIC詐騙網址彙整表_{today_str}.xlsx")
     csv_to_xlsx_exe = os.path.join(BASE_DIR, "csv_to_xlsx.exe")
     if not os.path.exists(csv_to_xlsx_exe):
         messagebox.showerror("錯誤", "找不到 csv_to_xlsx.exe 執行檔！")
