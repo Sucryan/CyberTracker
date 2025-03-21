@@ -14,7 +14,6 @@ import winshell  # pip install winshell
 
 import traceback
 import re
-
 today_str = datetime.datetime.now().strftime("%Y%m%d")
 now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -251,6 +250,7 @@ def generate_report(text_widget, root):
 # --------------------------
 
 def run_long_task(text_widget, root, progressbar):
+    # 建立必要資料夾
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(LAPTOP_OUTPUT_DIR, exist_ok=True)
     os.makedirs(MOBILE_OUTPUT_DIR, exist_ok=True)
@@ -302,6 +302,7 @@ def run_long_task(text_widget, root, progressbar):
         except Exception as e:
             thread_safe_log(f"{task_name} 執行失敗：{e}", text_widget, root)
 
+    # 設定桌面版 (laptop) 指令 (不帶 --mobile)
     lap_screenshot_cmd = [
         web_capture_exe,
         "screenshot",
@@ -314,6 +315,7 @@ def run_long_task(text_widget, root, progressbar):
         "--csv", output_csv,
         "--output", LAP_HTML_DIR
     ]
+    # 設定手機版 (mobile) 指令 (帶 --mobile)
     mob_screenshot_cmd = [
         web_capture_exe,
         "screenshot",
@@ -341,6 +343,7 @@ def run_long_task(text_widget, root, progressbar):
         t.join()
     thread_safe_log("web_capture 所有任務已完成。", text_widget, root)
 
+    # 生成報告 TXT
     total_count = 0
     try:
         with open(output_csv, "r", encoding="utf-8") as f:
@@ -355,17 +358,38 @@ def run_long_task(text_widget, root, progressbar):
         return
 
     today_str = time.strftime("%Y%m%d", time.localtime())
-    report_txt_name = f"LineReport.txt"
+    report_txt_name = "LineReport.txt"
     report_txt_path = os.path.join(OUTPUT_DIR, report_txt_name)
     thread_safe_log(f"準備產生報告 TXT => {report_txt_name}", text_widget, root)
     result = generate_domain_report_txt(output_csv, report_txt_path)
     thread_safe_log(result, text_widget, root)
 
+    # 複製 total.csv 並生成報告 CSV（舊功能）
     try:
         report_csv_path = copy_total_csv_report(output_csv, OUTPUT_DIR)
         thread_safe_log(f"已複製 total.csv 並生成報告 CSV：{os.path.basename(report_csv_path)}", text_widget, root)
     except Exception as e:
         thread_safe_log(f"複製 total.csv 失敗：{e}", text_widget, root)
+        root.after(0, progressbar.stop)
+        return
+
+    # 新增：直接在此產生 email report
+    try:
+        email_report = os.path.join(OUTPUT_DIR, f"email_report_example_{today_str}.csv")
+        with open(output_csv, "r", encoding="utf-8") as fin, \
+             open(email_report, "w", encoding="utf-8", newline="") as fout:
+            reader = csv.reader(fin)
+            writer = csv.writer(fout)
+            writer.writerow(["域名", "含子域名"])
+            next(reader, None)
+            for row in reader:
+                if len(row) >= 7:
+                    domain_val = row[4].strip()
+                    subdomain_val = row[6].strip()
+                    writer.writerow([domain_val, subdomain_val])
+        thread_safe_log(f"已產生 email report：{os.path.basename(email_report)}", text_widget, root)
+    except Exception as e:
+        thread_safe_log(f"生成 email report 失敗：{e}", text_widget, root)
         root.after(0, progressbar.stop)
         return
 
