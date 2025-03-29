@@ -1,3 +1,8 @@
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 import datetime
 import os
 import sys
@@ -11,7 +16,7 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 import time
 import winshell  # pip install winshell
-
+import json
 import traceback
 import re
 today_str = datetime.datetime.now().strftime("%Y%m%d")
@@ -104,6 +109,11 @@ def extract_brand_from_row(row):
     if len(row) < 2:
         return "電商"
     text = row[1].strip()
+    # 如果讀到「數產」，直接回傳「電商」
+    if "數產" in text:
+        return "電商"
+    if "台灣樂天" in text:
+        return "台灣樂天"
     if text.startswith("疑似假冒"):
         return text[4:6] if len(text) >= 6 else "電商"
     if text[:2] in ["偽冒", "假冒"]:
@@ -244,6 +254,108 @@ def generate_report(text_widget, root):
     output_txt = os.path.join(OUTPUT_DIR, "report.txt")
     result = generate_domain_report_txt(merged_csv, output_txt)
     log(result, text_widget)
+# ========== 郵件相關函式 (改用單純 print 而非 thread_safe_log) ==========
+def load_email_config():
+    config_path = os.path.join(BASE_DIR, "email_config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        return config["account"], config["password"]
+    except Exception as e:
+        raise Exception(f"讀取 email_config.json 失敗：{e}")
+
+SENDER_EMAIL, SENDER_PASSWORD = load_email_config()
+SMTP_SERVER = "smtp.gmail.com"  # 如需使用其他 SMTP，請修改
+SMTP_PORT = 587
+
+def send_email_with_attachment(to_email: str, subject: str, body: str, attachment_path: str):
+    print(f"[DEBUG] 正在寄給：{to_email}")
+    msg = MIMEMultipart()
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = to_email
+    msg["Subject"] = subject
+
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    if attachment_path and os.path.exists(attachment_path):
+        with open(attachment_path, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        filename = os.path.basename(attachment_path)
+        part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+        msg.attach(part)
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+        print(f"[Email] 已寄送給：{to_email}")
+    except Exception as e:
+        print(f"[Email] 寄送給 {to_email} 時發生錯誤：{e}")
+
+def create_email_report(input_csv_path: str, output_report_path: str):
+    try:
+        with open(input_csv_path, "r", encoding="utf-8") as fin, \
+             open(output_report_path, "w", encoding="utf-8", newline="") as fout:
+            reader = csv.reader(fin)
+            writer = csv.writer(fout)
+            writer.writerow(["域名", "含子域名"])
+            next(reader, None)  # 略過原 CSV 的表頭
+            for row in reader:
+                if len(row) >= 7:
+                    domain_val = row[4].strip()
+                    subdomain_val = row[6].strip()
+                    writer.writerow([domain_val, subdomain_val])
+        print(f"[Email Report] 已產生報告：{os.path.basename(output_report_path)}")
+    except Exception as e:
+        print(f"[Email Report] 產生失敗：{e}")
+        raise
+
+def send_email_reports(json_path: str, total_csv_path: str, output_dir: str):
+    if not os.path.exists(json_path):
+        print(f"[Email] 找不到收件者名單：{json_path}")
+        return
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        email_dict = json.load(f)
+
+    today_str = time.strftime("%Y%m%d", time.localtime())
+    report_csv = os.path.join(output_dir, f"email_report_example_{today_str}.csv")
+
+    # 產生報表
+    create_email_report(total_csv_path, report_csv)
+
+    subject = "封鎖通報報表"
+    body = (
+        "您好：\n\n"
+        "附件為今日產生的封鎖通報報表（包含「域名」及「含子域名」欄位）。\n"
+        "請查閱附件內容，謝謝！\n\n"
+        "此致\n敬上"
+    )
+
+    # 逐一寄送給 emails.json 裡的收件者
+    for _, recipient_email in email_dict.items():
+        send_email_with_attachment(recipient_email, subject, body, report_csv)
+
+def send_email_report_ui():
+    """
+    簡單版本：不傳 text_widget, root，
+    只用 print(...) 顯示寄送訊息於終端機。
+    """
+    csv_stuff_dir = os.path.join(BASE_DIR, "csv_stuff")
+    total_csv = os.path.join(csv_stuff_dir, "total.csv")
+    if not os.path.exists(total_csv):
+        print("[Email] 錯誤：找不到 total.csv！")
+        return
+
+    email_json_path = os.path.join(BASE_DIR, "emails.json")
+    try:
+        send_email_reports(email_json_path, total_csv, OUTPUT_DIR)
+        print("[Email] email report 寄送流程完成。")
+    except Exception as e:
+        print(f"[Email] 寄送 email report 時發生錯誤：{e}")
 
 # --------------------------
 # 移除 embed_image_in_html 功能（不再執行）
@@ -265,32 +377,34 @@ def run_long_task(text_widget, root, progressbar):
     web_capture_exe = os.path.join(BASE_DIR, "web_capture.exe")
 
     if not os.path.exists(merge_exe):
+        print("錯誤：找不到 merge_csv.exe！")
         thread_safe_log("錯誤：找不到 merge_csv.exe！", text_widget, root)
         root.after(0, progressbar.stop)
         return
 
     input_dir = os.path.join(BASE_DIR, "all_csv")
     output_csv = os.path.join(csv_stuff_dir, "total.csv")
+    print("開始執行 merge_csv...")
     thread_safe_log("開始執行 merge_csv...", text_widget, root)
     try:
-        subprocess.run([
-            merge_exe,
-            "--input-dir", input_dir,
-            "--output-file", output_csv
-        ], check=True)
+        subprocess.run([merge_exe, "--input-dir", input_dir, "--output-file", output_csv], check=True)
     except Exception as e:
+        print(f"merge_csv 執行失敗：{e}")
         thread_safe_log(f"merge_csv 執行失敗：{e}", text_widget, root)
         root.after(0, progressbar.stop)
         return
 
     if not os.path.isfile(output_csv):
+        print(f"錯誤：找不到合併後的 total.csv：{output_csv}")
         thread_safe_log(f"錯誤：找不到合併後的 total.csv：{output_csv}", text_widget, root)
         root.after(0, progressbar.stop)
         return
 
+    print(f"合併後 CSV 檔案：{output_csv}")
     thread_safe_log(f"合併後 CSV 檔案：{output_csv}", text_widget, root)
 
     if not os.path.exists(web_capture_exe):
+        print("錯誤：找不到 web_capture.exe！")
         thread_safe_log("錯誤：找不到 web_capture.exe！", text_widget, root)
         root.after(0, progressbar.stop)
         return
@@ -298,38 +412,19 @@ def run_long_task(text_widget, root, progressbar):
     def run_capture(cmd, task_name):
         try:
             subprocess.run(cmd, check=True)
+            print(f"{task_name} 完成。")
+
             thread_safe_log(f"{task_name} 完成。", text_widget, root)
         except Exception as e:
+            print(f"{task_name} 執行失敗：{e}")
             thread_safe_log(f"{task_name} 執行失敗：{e}", text_widget, root)
 
-    # 設定桌面版 (laptop) 指令 (不帶 --mobile)
-    lap_screenshot_cmd = [
-        web_capture_exe,
-        "screenshot",
-        "--csv", output_csv,
-        "--output", LAP_PNG_DIR
-    ]
-    lap_html_cmd = [
-        web_capture_exe,
-        "html",
-        "--csv", output_csv,
-        "--output", LAP_HTML_DIR
-    ]
-    # 設定手機版 (mobile) 指令 (帶 --mobile)
-    mob_screenshot_cmd = [
-        web_capture_exe,
-        "screenshot",
-        "--csv", output_csv,
-        "--output", MOB_PNG_DIR,
-        "--mobile"
-    ]
-    mob_html_cmd = [
-        web_capture_exe,
-        "html",
-        "--csv", output_csv,
-        "--output", MOB_HTML_DIR,
-        "--mobile"
-    ]
+    # 桌面版 (laptop) 指令 (不帶 --mobile)
+    lap_screenshot_cmd = [web_capture_exe, "screenshot", "--csv", output_csv, "--output", LAP_PNG_DIR]
+    lap_html_cmd = [web_capture_exe, "html", "--csv", output_csv, "--output", LAP_HTML_DIR]
+    # 手機版 (mobile) 指令 (帶 --mobile)
+    mob_screenshot_cmd = [web_capture_exe, "screenshot", "--csv", output_csv, "--output", MOB_PNG_DIR, "--mobile"]
+    mob_html_cmd = [web_capture_exe, "html", "--csv", output_csv, "--output", MOB_HTML_DIR, "--mobile"]
 
     threads = []
     for cmd, task in [(lap_screenshot_cmd, "桌面截圖"),
@@ -341,6 +436,7 @@ def run_long_task(text_widget, root, progressbar):
         threads.append(t)
     for t in threads:
         t.join()
+    print("web_capture 所有任務已完成。")
     thread_safe_log("web_capture 所有任務已完成。", text_widget, root)
 
     # 生成報告 TXT
@@ -353,6 +449,7 @@ def run_long_task(text_widget, root, progressbar):
                 if row and row[0].strip():
                     total_count += 1
     except Exception as e:
+        print(f"讀取 total.csv 失敗：{e}")
         thread_safe_log(f"讀取 total.csv 失敗：{e}", text_widget, root)
         root.after(0, progressbar.stop)
         return
@@ -360,22 +457,28 @@ def run_long_task(text_widget, root, progressbar):
     today_str = time.strftime("%Y%m%d", time.localtime())
     report_txt_name = "LineReport.txt"
     report_txt_path = os.path.join(OUTPUT_DIR, report_txt_name)
+    print(f"準備產生報告 TXT => {report_txt_name}")
     thread_safe_log(f"準備產生報告 TXT => {report_txt_name}", text_widget, root)
     result = generate_domain_report_txt(output_csv, report_txt_path)
+    print(result)
     thread_safe_log(result, text_widget, root)
 
-    # 複製 total.csv 並生成報告 CSV（舊功能）
     try:
         report_csv_path = copy_total_csv_report(output_csv, OUTPUT_DIR)
+        print(f"已複製 total.csv 並生成報告 CSV：{os.path.basename(report_csv_path)}")
         thread_safe_log(f"已複製 total.csv 並生成報告 CSV：{os.path.basename(report_csv_path)}", text_widget, root)
     except Exception as e:
+        print(f"複製 total.csv 失敗：{e}")
         thread_safe_log(f"複製 total.csv 失敗：{e}", text_widget, root)
         root.after(0, progressbar.stop)
         return
 
-    # 新增：直接在此產生 email report
+    # ---------------------------
+    # 新增：自動產生並寄送 email report
+    # ---------------------------
+    # 產生 email report CSV，存放於 OUTPUT_DIR 下，檔名格式：email_report_example_{YYYYMMDD}.csv
+    email_report = os.path.join(OUTPUT_DIR, f"email_report_example_{today_str}.csv")
     try:
-        email_report = os.path.join(OUTPUT_DIR, f"email_report_example_{today_str}.csv")
         with open(output_csv, "r", encoding="utf-8") as fin, \
              open(email_report, "w", encoding="utf-8", newline="") as fout:
             reader = csv.reader(fin)
@@ -387,15 +490,45 @@ def run_long_task(text_widget, root, progressbar):
                     domain_val = row[4].strip()
                     subdomain_val = row[6].strip()
                     writer.writerow([domain_val, subdomain_val])
+        print(f"已產生 email report：{os.path.basename(email_report)}")
         thread_safe_log(f"已產生 email report：{os.path.basename(email_report)}", text_widget, root)
     except Exception as e:
+        print(f"生成 email report 失敗：{e}")
         thread_safe_log(f"生成 email report 失敗：{e}", text_widget, root)
         root.after(0, progressbar.stop)
         return
 
+    # 從 emails.json 中讀取收件者並寄送報告
+    email_json_path = os.path.join(BASE_DIR, "emails.json")
+
+    if not os.path.exists(email_json_path):
+        print(f"錯誤：找不到 emails.json：{email_json_path}")
+    else:
+        try:
+            with open(email_json_path, "r", encoding="utf-8") as f:
+                email_dict = json.load(f)
+            subject = "封鎖通報報表"
+            
+            # 定義 TXT 檔案路徑並讀取內容
+            body_path = os.path.join(BASE_DIR, "email_body.txt")
+            if os.path.exists(body_path):
+                with open(body_path, "r", encoding="utf-8") as body_file:
+                    body = body_file.read()
+            else:
+                body = "錯誤：郵件正文檔案不存在，請檢查 email_body.txt"
+                print(f"錯誤：找不到 email_body.txt：{body_path}")
+                thread_safe_log(f"錯誤：找不到 email_body.txt：{body_path}", text_widget, root)
+            
+            for _, recipient in email_dict.items():
+                send_email_with_attachment(recipient, subject, body, email_report)
+            thread_safe_log("寄送成功!", text_widget, root)
+        except Exception as e:
+            print(f"寄送 email report 時發生錯誤：{e}")
+            thread_safe_log(f"寄送 email report 時發生錯誤：{e}", text_widget, root)
+
+    print("所有任務已完成。")
     thread_safe_log("所有任務已完成。", text_widget, root)
     root.after(0, progressbar.stop)
-
 def one_click_complete(text_widget, root, progressbar):
     progressbar.start(10)
     t = threading.Thread(target=run_long_task, args=(text_widget, root, progressbar))
@@ -451,11 +584,11 @@ def main_ui():
     btn_complete = ttk.Button(btn_frame, text="一鍵完成",
                               command=lambda: one_click_complete(text_widget, root, progressbar))
     btn_complete.grid(row=0, column=3, padx=15, pady=10)
-
+    '''
     btn_report = ttk.Button(btn_frame, text="生成通報 (TXT)",
                             command=lambda: generate_report(text_widget, root))
     btn_report.grid(row=0, column=4, padx=15, pady=10)
-
+    '''
     progressbar = ttk.Progressbar(root, style="green.Horizontal.TProgressbar",
                                   orient=tk.HORIZONTAL, mode="indeterminate", length=520)
     progressbar.pack(pady=5)
