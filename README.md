@@ -63,9 +63,9 @@ flowchart TB
 
 ## 3. 其他相關資源及提示
 
-另外，你也可以參考下方圖片 (由 draw.io 產生) 瞭解 CyberTracker 的執行路徑：
+另外，你也可以參考下方圖片 (由 draw.io 產生) 瞭解 CyberTracker 的執行路徑：(更新日期0401，重新構思與整理後詳細版以及會有位新功能 -> 區分domain/subdomain的設計)
 
-![CyberTracker執行路徑.drawio](https://hackmd.io/_uploads/SylPfscE3Jx.png)
+![CyberTracker執行路徑.drawio](https://hackmd.io/_uploads/HJEMi5PpJg.png)
 
 你如果想自行build一個inno setup安裝檔，並且是不需要使用系統管理員啟動的，記得點開修改其中的使用者名稱!!
 他寫成 ex. "C:\Users\<inputYourUserName>\CyberTracker\web_capture.exe" 記得把<inputYourUserName>，這裡面的使用者改成你windows自己的名稱，但當然也要看你git clone在哪裡，通常直接啟動cmd的git clone會在使用者目錄下。
