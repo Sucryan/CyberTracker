@@ -3,46 +3,79 @@ import sys
 import csv
 import time
 import argparse
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from PIL import Image, ImageDraw, ImageFont
+
+# 自訂例外與其他輔助函式保持不變
+class FacebookPagesException(Exception):
+    facebook_urls = []
+    def __init__(self, url, status_code):
+        self.url = url
+        self.status_code = status_code
+        super().__init__(f"Facebook page returned status {status_code} for URL: {url}")
+        FacebookPagesException.facebook_urls.append(url)
+
+    @classmethod
+    def output_urls(cls, output_file):
+        with open(output_file, "w", encoding="utf-8") as f:
+            for url in cls.facebook_urls:
+                f.write(url + "\n")
+
+class HTTPStatusError(Exception):
+    def __init__(self, url, status_code):
+        self.url = url
+        self.status_code = status_code
+        super().__init__(f"HTTP error {status_code} for URL: {url}")
 
 def safe_filename(name):
     for ch in r'\/:*?"<>|':
         name = name.replace(ch, "_")
     return name
 
-# 預設手機模擬使用的裝置設定（以 Pixel 2 為例）
-MOBILE_EMULATION = { "deviceName": "Pixel 2" }
+MOBILE_EMULATION = {"deviceName": "Pixel 2"}
+
+MOBILE_EMULATION = {"deviceName": "Pixel 2"}
 
 def add_url_banner(screenshot_path, url, banner_height=50, banner_color="#f0f0f0", text_color="#000"):
-    """
-    讀取截圖後，於圖片下方新增一塊布幕，並在布幕上加入 URL 文字
-    """
     try:
         img = Image.open(screenshot_path)
         width, height = img.size
-
-        # 建立一個新圖片，整體高度增加 banner_height
         new_img = Image.new('RGB', (width, height + banner_height), color=banner_color)
-        new_img.paste(img, (0, 0))
-
+        new_img.paste(img, (0, banner_height))
         draw = ImageDraw.Draw(new_img)
         try:
             font = ImageFont.truetype("arial.ttf", 20)
         except IOError:
             font = ImageFont.load_default()
-
-        # 設定文字繪製位置 (可根據需求調整邊距)
         text_x = 10
-        text_y = height + (banner_height - 20) // 2  # 垂直置中
+        text_y = (banner_height - 20) // 2
         draw.text((text_x, text_y), url, fill=text_color, font=font)
-
         new_img.save(screenshot_path)
         print(f"已加入 URL 橫幅，檔案更新為：{screenshot_path}")
     except Exception as e:
         print(f"[add_url_banner][錯誤] {str(e)}")
 
+def get_status_with_retry(url, retries=3, backoff=5):
+    attempt = 0
+    while attempt < retries:
+        try:
+            r = requests.head(url, timeout=10)
+            if r.status_code == 429:
+                print(f"HTTP 429 encountered for URL {url} (attempt {attempt+1}/{retries}), waiting {backoff} seconds...")
+                attempt += 1
+                if attempt < retries:
+                    time.sleep(backoff)
+                    continue
+            return r
+        except Exception as e:
+            attempt += 1
+            if attempt < retries:
+                print(f"HTTP HEAD request failed for URL {url} (attempt {attempt}/{retries}), waiting {backoff} seconds...")
+                time.sleep(backoff)
+            else:
+                raise e
 class ScreenshotTaker:
     def __init__(self, csv_file, output_dir, headless=True, is_mobile=False, window_width=1280, window_height=2000):
         self.csv_file = csv_file
@@ -61,10 +94,12 @@ class ScreenshotTaker:
         self.driver = webdriver.Chrome(options=self.options)
 
     def run(self, zoom=80, load_wait=3):
-        # 錯誤 log 檔案 (存放於輸出資料夾中)
+        SLEEP_DELAY = 5
         error_log_file = os.path.join(self.output_dir, "error_log.txt")
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        # 判斷是否讀取的是 domain CSV（檔名包含 "domain"）
+        is_domain_csv = "domain" in os.path.basename(self.csv_file).lower()
 
         with open(self.csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
@@ -76,30 +111,40 @@ class ScreenshotTaker:
                 domain = row[4].strip()
                 if not url:
                     continue
+
                 try:
+                    r = get_status_with_retry(url, retries=3, backoff=5)
+                    if r.status_code not in [200, 429]:
+                        if "facebook.com" in url.lower():
+                            raise FacebookPagesException(url, r.status_code)
+                        else:
+                            raise HTTPStatusError(url, r.status_code)
                     self.driver.get(url)
                     time.sleep(load_wait)
                     page_title = self.driver.title
+                    # 改用更精確的時間戳（含秒）
                     timestamp = time.strftime("%m%d%H%M")
                     safe_dom = safe_filename(domain)
                     safe_tit = safe_filename(page_title)
-                    screenshot_filename = f"{timestamp}_{safe_dom}_{safe_tit}.png"
-                    screenshot_path = os.path.join(self.output_dir, screenshot_filename)
+                    if is_domain_csv:
+                        base_filename = f"{timestamp}_1_{safe_dom}_{safe_tit}.png"
+                    else:
+                        base_filename = f"{timestamp}_{safe_dom}_{safe_tit}.png"
+                    # 取得唯一的檔案路徑，避免覆蓋
+                    screenshot_path = os.path.join(self.output_dir, base_filename)
 
-                    # 設定縮放比例（可依需求調整）
                     self.driver.execute_script(f"document.body.style.zoom='{zoom}%'")
                     time.sleep(2)
-
                     self.driver.save_screenshot(screenshot_path)
                     print(f"已截圖: {screenshot_path}")
-
-                    # 截圖後進行後處理，加入下方 URL 布幕
                     add_url_banner(screenshot_path, url)
                 except Exception as e:
                     error_msg = f"錯誤 - 網域: {domain} / URL: {url} / 錯誤內容: {str(e)}\n"
                     print(f"[ScreenshotTaker][錯誤] {error_msg}")
                     with open(error_log_file, "a", encoding="utf-8") as error_file:
                         error_file.write(error_msg)
+                finally:
+                    time.sleep(SLEEP_DELAY)
         print("[ScreenshotTaker] CSV 中所有網址截圖完成！")
         self.driver.quit()
 
@@ -121,9 +166,11 @@ class HTMLDownloader:
         self.driver = webdriver.Chrome(options=self.options)
 
     def run(self, load_wait=3):
+        SLEEP_DELAY = 5
         error_log_file = os.path.join(self.output_dir, "error_log.txt")
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        is_domain_csv = "domain" in os.path.basename(self.csv_file).lower()
 
         with open(self.csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
@@ -135,15 +182,25 @@ class HTMLDownloader:
                 domain = row[4].strip()
                 if not url:
                     continue
+
                 try:
+                    r = get_status_with_retry(url, retries=3, backoff=5)
+                    if r.status_code not in [200, 429]:
+                        if "facebook.com" in url.lower():
+                            raise FacebookPagesException(url, r.status_code)
+                        else:
+                            raise HTTPStatusError(url, r.status_code)
                     self.driver.get(url)
                     time.sleep(load_wait)
                     page_title = self.driver.title
                     timestamp = time.strftime("%m%d%H%M")
                     safe_dom = safe_filename(domain)
                     safe_tit = safe_filename(page_title)
-                    html_filename = f"{timestamp}_{safe_dom}_{safe_tit}.html"
-                    html_path = os.path.join(self.output_dir, html_filename)
+                    if is_domain_csv:
+                        base_filename = f"{timestamp}_1_{safe_dom}_{safe_tit}.html"
+                    else:
+                        base_filename = f"{timestamp}_{safe_dom}_{safe_tit}.html"
+                    html_path = os.path.join(self.output_dir, base_filename)
                     with open(html_path, "w", encoding="utf-8") as html_file:
                         html_file.write(self.driver.page_source)
                     print(f"已存檔網頁原始碼: {html_path}")
@@ -152,6 +209,8 @@ class HTMLDownloader:
                     print(f"[HTMLDownloader][錯誤] {error_msg}")
                     with open(error_log_file, "a", encoding="utf-8") as error_file:
                         error_file.write(error_msg)
+                finally:
+                    time.sleep(SLEEP_DELAY)
         print("[HTMLDownloader] CSV 中所有網址原始檔下載完成！")
         self.driver.quit()
 
@@ -182,10 +241,10 @@ def main():
             downloader = HTMLDownloader(csv_file, out_dir, headless=args.headless, is_mobile=args.mobile)
             downloader.run()
     except Exception as e:
-        error_log_file = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "global_error_log.txt")
+        global_error_log = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "global_error_log.txt")
         error_msg = f"全域錯誤: {str(e)}\n"
         print(error_msg)
-        with open(error_log_file, "a", encoding="utf-8") as error_file:
+        with open(global_error_log, "a", encoding="utf-8") as error_file:
             error_file.write(error_msg)
 
 if __name__ == "__main__":
