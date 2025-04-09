@@ -1,8 +1,4 @@
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
+
 import datetime
 import os
 import sys
@@ -16,9 +12,9 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 import time
 import winshell  # pip install winshell
-import json
 import traceback
 import re
+import os
 today_str = datetime.datetime.now().strftime("%Y%m%d")
 now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -120,12 +116,27 @@ def extract_brand_from_row(row):
         return text[2:4] if len(text) >= 4 else "電商"
     return "電商"
 
+# 取得品牌資訊與總筆數的輔助函式
+def get_vendor_info(total_csv_path):
+    total_count = 0
+    vendor_set = set()
+    try:
+        with open(total_csv_path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)  # 略過表頭
+            for row in reader:
+                if row and row[0].strip():
+                    total_count += 1
+                    # 使用 extract_brand_from_row 函式取得品牌（請確保此函式已定義）
+                    brand = extract_brand_from_row(row)
+                    vendor_set.add(brand)
+    except Exception as e:
+        raise Exception(f"讀取 total.csv 失敗：{e}")
+    vendor_str = "+".join(sorted(vendor_set)) if vendor_set else "電商"
+    return total_count, vendor_str
+
+# 修改後的複製 total.csv 產生 reference 檔案
 def copy_total_csv_report(total_csv_path, output_folder):
-    """
-    讀取 total.csv，計算總筆數 (第一列為表頭，從第二列起為資料)。
-    從 total.csv 中解析每一筆資料的品牌（呼叫 extract_brand_from_row），
-    並命名為 YYYYMMDD.申報.(廠商1+廠商2+...)(N筆).csv，以 UTF-8 輸出。
-    """
     total_count = 0
     vendor_set = set()
 
@@ -134,25 +145,21 @@ def copy_total_csv_report(total_csv_path, output_folder):
             reader = csv.reader(f)
             header = next(reader, None)  # 略過表頭
             for row in reader:
-                # 如果該列有資料 (row[0] 不是空的)，就計數並提取品牌
                 if row and row[0].strip():
                     total_count += 1
-                    brand = extract_brand_from_row(row)  # 使用先前定義好的函式
+                    brand = extract_brand_from_row(row)
                     vendor_set.add(brand)
     except Exception as e:
         raise Exception(f"讀取 total.csv 失敗：{e}")
 
-    # 如果有收集到品牌，則以 "+" 連接，否則預設為 "電商"
-    vendor_str = "+".join(sorted(vendor_set)) if vendor_set else "電商"
-
+    # 舊有邏輯產生 vendor_str 已不再使用於檔名中
     today_str = time.strftime("%Y%m%d", time.localtime())
-    new_filename = f"{today_str}.申報.{vendor_str}({total_count}筆).csv"
+    new_filename = f"reference_{today_str}.csv"  # 改成 reference_{日期}.csv
     new_file_path = os.path.join(output_folder, new_filename)
 
-    # 將 total.csv 原始內容直接複製到新檔名中
     try:
         with open(total_csv_path, "r", encoding="utf-8") as src, \
-             open(new_file_path, "w", encoding="utf-8", newline="") as dst:
+             open(new_file_path, "w", encoding="big5", newline="") as dst:
             shutil.copyfileobj(src, dst)
     except Exception as e:
         raise Exception(f"寫入報告檔失敗：{e}")
@@ -255,6 +262,8 @@ def generate_report(text_widget, root):
     result = generate_domain_report_txt(merged_csv, output_txt)
     log(result, text_widget)
 # ========== 郵件相關函式 (改用單純 print 而非 thread_safe_log) ==========
+# Bolin已在網頁後端完成。
+'''
 def load_email_config():
     config_path = os.path.join(BASE_DIR, "email_config.json")
     try:
@@ -294,25 +303,25 @@ def send_email_with_attachment(to_email: str, subject: str, body: str, attachmen
         print(f"[Email] 已寄送給：{to_email}")
     except Exception as e:
         print(f"[Email] 寄送給 {to_email} 時發生錯誤：{e}")
-
+'''
+'''
 def create_email_report(input_csv_path: str, output_report_path: str):
     try:
-        with open(input_csv_path, "r", encoding="utf-8") as fin, \
-             open(output_report_path, "w", encoding="utf-8", newline="") as fout:
-            reader = csv.reader(fin)
-            writer = csv.writer(fout)
-            writer.writerow(["域名", "含子域名"])
-            next(reader, None)  # 略過原 CSV 的表頭
-            for row in reader:
-                if len(row) >= 7:
-                    domain_val = row[4].strip()
-                    subdomain_val = row[6].strip()
-                    writer.writerow([domain_val, subdomain_val])
+        # 以 UTF-8 讀取原始 CSV 檔（假設原檔含表頭）
+        df = pd.read_csv(input_csv_path, encoding="utf-8")
+        # 取出第 5 欄與第 7 欄（欄位索引分別為 4 與 6）
+        df_report = df.iloc[:, [4, 6]].copy()
+        # 重新命名欄位
+        df_report.columns = ["域名", "含子域名"]
+
+        # 匯出 CSV，不輸出 index，並指定 Windows 換行格式
+        df_report.to_csv(output_report_path, index=False, encoding="big5", line_terminator="\r\n")
         print(f"[Email Report] 已產生報告：{os.path.basename(output_report_path)}")
     except Exception as e:
         print(f"[Email Report] 產生失敗：{e}")
         raise
-
+'''
+'''
 def send_email_reports(json_path: str, total_csv_path: str, output_dir: str):
     if not os.path.exists(json_path):
         print(f"[Email] 找不到收件者名單：{json_path}")
@@ -356,7 +365,7 @@ def send_email_report_ui():
         print("[Email] email report 寄送流程完成。")
     except Exception as e:
         print(f"[Email] 寄送 email report 時發生錯誤：{e}")
-
+'''
 # --------------------------
 # 移除 embed_image_in_html 功能（不再執行）
 # --------------------------
@@ -384,6 +393,7 @@ def run_long_task(text_widget, root, progressbar):
 
     input_dir = os.path.join(BASE_DIR, "all_csv")
     output_csv = os.path.join(csv_stuff_dir, "total.csv")
+    output_csv2 = os.path.join(csv_stuff_dir, "domain.csv")
     print("開始執行 merge_csv...")
     thread_safe_log("開始執行 merge_csv...", text_widget, root)
     try:
@@ -420,17 +430,29 @@ def run_long_task(text_widget, root, progressbar):
             thread_safe_log(f"{task_name} 執行失敗：{e}", text_widget, root)
 
     # 桌面版 (laptop) 指令 (不帶 --mobile)
-    lap_screenshot_cmd = [web_capture_exe, "screenshot", "--csv", output_csv, "--output", LAP_PNG_DIR]
-    lap_html_cmd = [web_capture_exe, "html", "--csv", output_csv, "--output", LAP_HTML_DIR]
+    lap_screenshot_total_cmd = [web_capture_exe, "screenshot", "--csv", output_csv, "--output", LAP_PNG_DIR]
+    lap_html_total_cmd = [web_capture_exe, "html", "--csv", output_csv, "--output", LAP_HTML_DIR]
     # 手機版 (mobile) 指令 (帶 --mobile)
-    mob_screenshot_cmd = [web_capture_exe, "screenshot", "--csv", output_csv, "--output", MOB_PNG_DIR, "--mobile"]
-    mob_html_cmd = [web_capture_exe, "html", "--csv", output_csv, "--output", MOB_HTML_DIR, "--mobile"]
+    mob_screenshot_total_cmd = [web_capture_exe, "screenshot", "--csv", output_csv, "--output", MOB_PNG_DIR, "--mobile"]
+    mob_html_total_cmd = [web_capture_exe, "html", "--csv", output_csv, "--output", MOB_HTML_DIR, "--mobile"]
+
+    # 桌面版 (laptop) 指令 (不帶 --mobile)
+    lap_screenshot_domain_cmd = [web_capture_exe, "screenshot", "--csv", output_csv2, "--output", LAP_PNG_DIR]
+    lap_html_domain_cmd = [web_capture_exe, "html", "--csv", output_csv2, "--output", LAP_HTML_DIR]
+    # 手機版 (mobile) 指令 (帶 --mobile)
+    mob_screenshot_domain_cmd = [web_capture_exe, "screenshot", "--csv", output_csv2, "--output", MOB_PNG_DIR, "--mobile"]
+    mob_html_domain_cmd = [web_capture_exe, "html", "--csv", output_csv2, "--output", MOB_HTML_DIR, "--mobile"]
 
     threads = []
-    for cmd, task in [(lap_screenshot_cmd, "桌面截圖"),
-                      (lap_html_cmd, "桌面 HTML"),
-                      (mob_screenshot_cmd, "手機截圖"),
-                      (mob_html_cmd, "手機 HTML")]:
+    for cmd, task in [(lap_screenshot_total_cmd, "桌面截圖(subdomain)"),
+                  (lap_html_total_cmd, "桌面 HTML(subdomain)"),
+                  (mob_screenshot_total_cmd, "手機截圖(subdomain)"),
+                  (mob_html_total_cmd, "手機 HTML(subdomain)"),
+                  (lap_screenshot_domain_cmd, "桌面截圖(domain)"),
+                  (lap_html_domain_cmd, "桌面 HTML(domain)"),
+                  (mob_screenshot_domain_cmd, "手機截圖(domain)"),
+                  (mob_html_domain_cmd, "手機 HTML(domain)"),
+                  ]:
         t = threading.Thread(target=run_capture, args=(cmd, task))
         t.start()
         threads.append(t)
@@ -464,6 +486,7 @@ def run_long_task(text_widget, root, progressbar):
     thread_safe_log(result, text_widget, root)
 
     try:
+        # 產生 reference CSV，原本 copy_total_csv_report 的回傳檔案
         report_csv_path = copy_total_csv_report(output_csv, OUTPUT_DIR)
         print(f"已複製 total.csv 並生成報告 CSV：{os.path.basename(report_csv_path)}")
         thread_safe_log(f"已複製 total.csv 並生成報告 CSV：{os.path.basename(report_csv_path)}", text_widget, root)
@@ -473,14 +496,27 @@ def run_long_task(text_widget, root, progressbar):
         root.after(0, progressbar.stop)
         return
 
+
     # ---------------------------
     # 新增：自動產生並寄送 email report
     # ---------------------------
     # 產生 email report CSV，存放於 OUTPUT_DIR 下，檔名格式：email_report_example_{YYYYMMDD}.csv
-    email_report = os.path.join(OUTPUT_DIR, f"email_report_example_{today_str}.csv")
+    
+    try:
+        total_count, vendor_str = get_vendor_info(output_csv)
+    except Exception as e:
+        print(f"取得 vendor 資訊失敗：{e}")
+        thread_safe_log(f"取得 vendor 資訊失敗：{e}", text_widget, root)
+        root.after(0, progressbar.stop)
+        return
+
+    # email report 檔案名稱改為申報命名法則：{YYYYMMDD}.申報.{vendor_str}({total_count}筆).csv
+    email_report_name = f"{today_str}.申報.{vendor_str}({total_count}筆).csv"
+    email_report = os.path.join(OUTPUT_DIR, email_report_name)
+
     try:
         with open(output_csv, "r", encoding="utf-8") as fin, \
-             open(email_report, "w", encoding="utf-8", newline="") as fout:
+            open(email_report, "w", encoding="big5", newline="") as fout:
             reader = csv.reader(fin)
             writer = csv.writer(fout)
             writer.writerow(["域名", "含子域名"])
@@ -497,7 +533,7 @@ def run_long_task(text_widget, root, progressbar):
         thread_safe_log(f"生成 email report 失敗：{e}", text_widget, root)
         root.after(0, progressbar.stop)
         return
-
+    '''
     # 從 emails.json 中讀取收件者並寄送報告
     email_json_path = os.path.join(BASE_DIR, "emails.json")
 
@@ -525,7 +561,7 @@ def run_long_task(text_widget, root, progressbar):
         except Exception as e:
             print(f"寄送 email report 時發生錯誤：{e}")
             thread_safe_log(f"寄送 email report 時發生錯誤：{e}", text_widget, root)
-
+    '''
     print("所有任務已完成。")
     thread_safe_log("所有任務已完成。", text_widget, root)
     root.after(0, progressbar.stop)
