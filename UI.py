@@ -531,26 +531,53 @@ def run_long_task(text_widget, root, progressbar):
     email_report_name = f"{today_str}.申報.{vendor_str}({total_count}筆).csv"
     email_report = os.path.join(OUTPUT_DIR, email_report_name)
 
+    # email report 檔案名稱改為申報命名法則：{YYYYMMDD}.申報.{vendor_str}({total_count}筆).csv
+    email_report_name = f"{today_str}.申報.{vendor_str}({total_count}筆).csv"
+    email_report = os.path.join(OUTPUT_DIR, email_report_name)
+
     try:
+        with open(output_csv, "r", encoding="utf-8") as fin:
+            reader = csv.reader(fin)
+            next(reader, None)  # 跳過標頭
+            
+            # 先計算不重複網域數量
+            processed_domains = set()
+            for row in reader:
+                if len(row) >= 7:
+                    domain_val = row[4].strip()
+                    processed_domains.add(domain_val)
+            unique_count = len(processed_domains)
+        
+        # 使用不重複的筆數產生檔案名稱
+        email_report_name = f"{today_str}.申報.{vendor_str}({unique_count}筆).csv"
+        email_report = os.path.join(OUTPUT_DIR, email_report_name)
+        
+        # 再重新寫入檔案
         with open(output_csv, "r", encoding="utf-8") as fin, \
             open(email_report, "w", encoding="big5", newline="") as fout:
             reader = csv.reader(fin)
             writer = csv.writer(fout)
             writer.writerow(["域名", "含子域名"])
-            next(reader, None)
+            next(reader, None)  # 跳過標頭
+            
+            processed_domains = set()  # 重置set
             for row in reader:
                 if len(row) >= 7:
                     domain_val = row[4].strip()
                     subdomain_val = row[6].strip()
-                    writer.writerow([domain_val, subdomain_val])
-        print(f"已產生 email report：{os.path.basename(email_report)}")
-        thread_safe_log(f"已產生 email report：{os.path.basename(email_report)}", text_widget, root)
+                    if domain_val not in processed_domains:
+                        writer.writerow([domain_val, subdomain_val])
+                        processed_domains.add(domain_val)
+            
+            print(f"已產生 email report：{os.path.basename(email_report)}，共 {unique_count} 筆不重複網域")
+            thread_safe_log(f"已產生 email report：{os.path.basename(email_report)}，共 {unique_count} 筆不重複網域", 
+                        text_widget, root)
     except Exception as e:
         print(f"生成 email report 失敗：{e}")
         thread_safe_log(f"生成 email report 失敗：{e}", text_widget, root)
         root.after(0, progressbar.stop)
-        return
-    '''
+        return()
+        '''
     # 從 emails.json 中讀取收件者並寄送報告
     email_json_path = os.path.join(BASE_DIR, "emails.json")
 
