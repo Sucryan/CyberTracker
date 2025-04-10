@@ -412,6 +412,23 @@ def run_long_task(text_widget, root, progressbar):
 
     print(f"合併後 CSV 檔案：{output_csv}")
     thread_safe_log(f"合併後 CSV 檔案：{output_csv}", text_widget, root)
+    
+    try:
+        subprocess.run([merge_exe, "--input-dir", input_dir, "--output-file", output_csv2], check=True)
+    except Exception as e:
+        print(f"merge_csv 執行失敗：{e}")
+        thread_safe_log(f"merge_csv 執行失敗：{e}", text_widget, root)
+        root.after(0, progressbar.stop)
+        return
+
+    if not os.path.isfile(output_csv2):
+        print(f"錯誤：找不到合併後的 domain.csv：{output_csv2}")
+        thread_safe_log(f"錯誤：找不到合併後的 domain.csv：{output_csv2}", text_widget, root)
+        root.after(0, progressbar.stop)
+        return
+
+    print(f"合併後 CSV 檔案：{output_csv2}")
+    thread_safe_log(f"合併後 CSV 檔案：{output_csv2}", text_widget, root)
 
     if not os.path.exists(web_capture_exe):
         print("錯誤：找不到 web_capture.exe！")
