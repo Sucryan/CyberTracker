@@ -28,5 +28,6 @@ trio-websocket==0.12.2
 typing_extensions==4.12.2
 urllib3==2.3.0
 websocket-client==1.8.0
+tldextract
 winshell==0.6
 wsproto==1.2.0
